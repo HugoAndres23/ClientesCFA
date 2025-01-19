@@ -20,18 +20,16 @@ namespace ClientesCFA.Database
         {
             try
             {
-                var dbCreator = Database.GetService<IDatabaseCreator>() as RelationalDatabaseCreator;
-                if (dbCreator != null)
+                if (!Database.CanConnect())
                 {
-                    if (!dbCreator.CanConnect())
-                        dbCreator.Create();
-                    if (!dbCreator.HasTables())
-                        dbCreator.CreateTables();
+                    Database.EnsureCreated();
+                    Console.WriteLine("Database and tables have been created.");
                 }
+                CreateStoredProcedures();
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine($"Initialization error: {ex.Message}");
             }
         }
 
@@ -87,31 +85,37 @@ namespace ClientesCFA.Database
 
         public void CreateStoredProcedures()
         {
-            var createProcedure = @"
-                CREATE PROCEDURE DeletePersonById
-                    @PersonId INT
-                AS
+            var checkProcedure = @"
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'DeletePersonById')
                 BEGIN
-                    SET NOCOUNT ON;
+                    EXEC('
+                        CREATE PROCEDURE DeletePersonById
+                            @PersonId INT
+                        AS
+                        BEGIN
+                            SET NOCOUNT ON;
 
-                    DELETE FROM Addresses WHERE PersonId = @PersonId;
-                    DELETE FROM Phones WHERE PersonId = @PersonId;
-                    DELETE FROM Emails WHERE PersonId = @PersonId;
+                            DELETE FROM Addresses WHERE PersonId = @PersonId;
+                            DELETE FROM Phones WHERE PersonId = @PersonId;
+                            DELETE FROM Emails WHERE PersonId = @PersonId;
 
-                    DELETE FROM People WHERE Id = @PersonId;
+                            DELETE FROM People WHERE Id = @PersonId;
+                        END;
+                    ');
                 END;
             ";
 
             try
             {
-                this.Database.ExecuteSqlRaw(createProcedure);
-                Console.WriteLine("Procedimiento almacenado creado correctamente.");
+                this.Database.ExecuteSqlRaw(checkProcedure);
+                Console.WriteLine("Stored procedure 'DeletePersonById' has been created or already exists.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error al crear el procedimiento: {ex.Message}");
+                Console.WriteLine($"Error creating the stored procedure: {ex.Message}");
             }
         }
+
     }
 }
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ClientesCFA.Models;
 using System.Text.RegularExpressions;
+using System.Globalization;
 
 namespace ClientesCFA.Controllers
 {
@@ -29,9 +30,21 @@ namespace ClientesCFA.Controllers
                 .ToListAsync();
 
             if (people == null || !people.Any())
-                return NotFound("No people found.");
+                return NotFound("No clients found.");
 
-            return Ok(people);
+            var result = people.Select(p => new
+            {
+                p.Id,
+                p.DocumentType,
+                p.DocumentNumber,
+                FullName = $"{p.Names} {p.LastName1} {p.LastName2}",
+                BirthDate = p.BirthDate.ToString("dd-MM-yyyy"),
+                p.Addresses,
+                p.Phones,
+                p.Emails
+            }).ToList();
+
+            return Ok(result);
         }
 
         // GET: api/Person/5
@@ -46,9 +59,21 @@ namespace ClientesCFA.Controllers
                 .SingleOrDefaultAsync(p => p.Id == id);
 
             if (person == null)
-                return NotFound($"Person with ID {id} not found.");
+                return NotFound($"Client with ID {id} not found.");
 
-            return Ok(person);
+            var result = new
+            {
+                person.Id,
+                person.DocumentType,
+                person.DocumentNumber,
+                FullName = $"{person.Names} {person.LastName1} {person.LastName2}",
+                BirthDate = person.BirthDate.ToString("dd-MM-yyyy"),
+                person.Addresses,
+                person.Phones,
+                person.Emails
+            };
+
+            return Ok(result);
         }
 
         // POST: api/Person
@@ -58,14 +83,14 @@ namespace ClientesCFA.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            if (!person.IsValidDocumentTypeForAge(out var errorMessage))
-                return BadRequest(errorMessage);
-
             var existingPerson = await _context.People
                 .AnyAsync(p => p.DocumentType == person.DocumentType && p.DocumentNumber == person.DocumentNumber);
 
             if (existingPerson)
-                return Conflict("A person with the same document type and number already exists.");
+                return Conflict("A client with the same document type and number already exists.");
+
+            if (!person.IsValidDocumentTypeForAge(out var errorMessage))
+                return BadRequest(errorMessage);
 
             await _context.People.AddAsync(person);
             await _context.SaveChangesAsync();
@@ -87,7 +112,7 @@ namespace ClientesCFA.Controllers
                 .SingleOrDefaultAsync(p => p.Id == id);
 
             if (existingPerson == null)
-                return NotFound($"Person with ID {id} not found.");
+                return NotFound($"Client with ID {id} not found.");
 
             existingPerson.DocumentType = person.DocumentType;
             existingPerson.DocumentNumber = person.DocumentNumber;
@@ -96,6 +121,9 @@ namespace ClientesCFA.Controllers
             existingPerson.LastName2 = person.LastName2;
             existingPerson.Gender = person.Gender;
             existingPerson.BirthDate = person.BirthDate;
+            existingPerson.Addresses = person.Addresses;
+            existingPerson.Phones = person.Phones;
+            existingPerson.Emails = person.Emails;
 
             _context.People.Update(existingPerson);
             await _context.SaveChangesAsync();
@@ -109,7 +137,7 @@ namespace ClientesCFA.Controllers
         {
             var personExists = await _context.People.AnyAsync(p => p.Id == id);
             if (!personExists)
-                return NotFound($"Person with ID {id} not found.");
+                return NotFound($"Client with ID {id} not found.");
 
             await _context.Database.ExecuteSqlRawAsync(
                 "EXEC DeletePersonById @PersonId = {0}", id);
@@ -166,20 +194,31 @@ namespace ClientesCFA.Controllers
             return Ok(results);
         }
 
-        // GET: api/Person/search/by-birthdate?startDate="2000-01-18"&endDate="2024-01-10"
+        // GET: api/Person/search/by-birthdate?startDate=18-01-2000&endDate=10-01-2024
         [HttpGet("search/by-birthdate")]
-        public async Task<IActionResult> SearchByBirthDate(DateTime startDate, DateTime endDate)
+        public async Task<IActionResult> SearchByBirthDate(string startDate, string endDate)
         {
-            if (startDate > endDate)
+
+            if (!DateTime.TryParseExact(startDate, "dd-MM-yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedStartDate))
+            {
+                return BadRequest("Invalid start date format. Please use dd-mm-yyyy.");
+            }
+
+            if (!DateTime.TryParseExact(endDate, "dd-MM-yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedEndDate))
+            {
+                return BadRequest("Invalid end date format. Please use dd-mm-yyyy.");
+            }
+
+            if (parsedStartDate > parsedEndDate)
                 return BadRequest("Start date cannot be after end date.");
 
             var results = await _context.People
                 .AsNoTracking()
-                .Where(p => p.BirthDate >= startDate && p.BirthDate <= endDate)
+                .Where(p => p.BirthDate >= parsedStartDate && p.BirthDate <= parsedEndDate)
                 .OrderBy(p => p.BirthDate)
                 .Select(p => new
                 {
-                    p.BirthDate,
+                    BirthDate = p.BirthDate.ToString("dd-MM-yyyy"),
                     FullName = $"{p.Names} {p.LastName1} {p.LastName2}"
                 })
                 .ToListAsync();
